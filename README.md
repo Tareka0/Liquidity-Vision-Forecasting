@@ -27,7 +27,7 @@ python liquidity_vision_local.py
 Launch the Dashboard:
 Simply double-click LiquidityVision_local.html to open it in your browser and view the interactive charts.
 
-**Core Features**
+## Core Features
 AI Forecasting: Analyzes historical trends to predict future inflows and outflows.
 
 Interactive Visuals: Dynamic charts that update based on user input.
