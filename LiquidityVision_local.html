@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Liquidity Vision</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  /* ══════════════════════════════════════════════
+     HOW TO CONNECT:
+     1. Run liquidity_vision.py in Google Colab
+     2. Copy the ngrok URL printed in the last cell
+     3. Replace "http://localhost:5000" below with it
+     Example: const API = "https://abc123.ngrok-free.app"
+  ══════════════════════════════════════════════ */
+
+  :root {
+    --navy: #1A3A5C; --gold: #C8973A; --green: #0F6E56;
+    --red: #993C1D; --amber: #BA7517;
+    --bg: #F8F9FA; --card: #FFFFFF; --border: #E2E6EA;
+    --text: #1C2B3A; --muted: #6B7A8D;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); color: var(--text); direction: rtl; }
+
+  .topbar { background: var(--navy); color: white; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar-title { font-size: 18px; font-weight: 600; }
+  .topbar-sub { font-size: 12px; opacity: 0.7; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #2ecc71; display: inline-block; margin-left: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .connection-banner { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 24px; font-size: 13px; display: flex; align-items: center; gap: 12px; }
+  .connection-banner input { flex: 1; padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; direction: ltr; }
+  .connection-banner button { background: var(--navy); color: white; border: none; padding: 7px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .metric-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .metric-value { font-size: 26px; font-weight: 600; color: var(--navy); }
+  .metric-delta { font-size: 12px; margin-top: 4px; }
+  .delta-up   { color: var(--green); }
+  .delta-warn { color: var(--amber); }
+  .delta-down { color: var(--red); }
+
+  .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--navy); margin-bottom: 4px; }
+  .card-sub   { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+
+  .controls-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tab-btn { padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border); background: white; font-size: 12px; cursor: pointer; color: var(--muted); }
+  .tab-btn.active { background: var(--navy); color: white; border-color: var(--navy); }
+
+  .slider-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .slider-label { font-size: 12px; color: var(--muted); min-width: 100px; }
+  .slider-value { font-size: 13px; font-weight: 600; color: var(--navy); min-width: 50px; text-align: left; }
+
+  .ratio-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .ratio-row:last-child { border-bottom: none; }
+  .ratio-name  { font-size: 13px; color: var(--muted); }
+  .ratio-value { font-size: 14px; font-weight: 600; }
+  .good  { color: var(--green); }
+  .warn  { color: var(--amber); }
+  .bad   { color: var(--red); }
+
+  .alert-box { border-radius: 8px; padding: 12px 14px; margin-top: 12px; }
+  .alert-box.warn-level  { background: #fff8e1; border: 1px solid #ffc107; }
+  .alert-box.crit-level  { background: #fdecea; border: 1px solid #f44336; }
+  .alert-box.safe-level  { background: #e8f5e9; border: 1px solid #66bb6a; }
+  .alert-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .alert-text  { font-size: 12px; line-height: 1.6; }
+
+  .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+  .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--navy); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 768px) {
+    .metrics-row { grid-template-columns: repeat(2, 1fr); }
+    .main-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <div class="topbar-title">📊 Liquidity Vision</div>
+    <div class="topbar-sub">منصة التنبؤ بالتدفق النقدي — مدعومة بتعلم الآلة</div>
+  </div>
+  <div><span class="status-dot"></span><span id="conn-status" style="font-size:12px;">جاري الاتصال...</span></div>
+</div>
+
+<!--
+  ╔══════════════════════════════════════════╗
+  ║  STEP 1: Paste your ngrok URL here       ║
+  ╚══════════════════════════════════════════╝
+-->
+<div class="connection-banner">
+  <span>🔗 رابط API (من Colab):</span>
+  <input type="text" id="api-url-input" placeholder="https://xxxx.ngrok-free.app" value="http://localhost:5000"/>
+  <button onclick="connectAPI()">اتصال</button>
+  <button onclick="useMockData()" style="background:#6c757d;">بيانات تجريبية</button>
+</div>
+
+<div class="container">
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-label">التدفق الداخل المتوقع</div>
+      <div class="metric-value" id="m-inflow">—</div>
+      <div class="metric-delta delta-up" id="m-inflow-d">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">التدفق الخارج المتوقع</div>
+      <div class="metric-value" id="m-outflow">—</div>
+      <div class="metric-delta delta-warn" id="m-outflow-d">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">صافي السيولة</div>
+      <div class="metric-value" id="m-net">—</div>
+      <div class="metric-delta" id="m-net-d">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">دقة النموذج (MAPE)</div>
+      <div class="metric-value" id="m-mape">—</div>
+      <div class="metric-delta delta-up">Prophet + Polynomial</div>
+    </div>
+  </div>
+
+  <div class="main-grid">
+    <div class="card">
+      <div class="card-title">توقع التدفق النقدي — 6 أشهر</div>
+      <div class="card-sub">السلسلة الزمنية مبنية على بيانات تاريخية + نماذج ML من Python</div>
+      <div class="controls-row">
+        <button class="tab-btn active" onclick="setView('flow', this)">التدفقات</button>
+        <button class="tab-btn" onclick="setView('net', this)">الصافي</button>
+        <button class="tab-btn" onclick="setView('cov', this)">نسبة التغطية</button>
+      </div>
+      <div style="position:relative; height:240px;">
+        <canvas id="flowChart"></canvas>
+        <div class="loading" id="chart-loading"><div class="spinner"></div>جاري التحميل...</div>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">نسبة الفائدة (CBE)</span>
+        <input type="range" id="rate-slider" min="8" max="35" value="27" step="1" style="flex:1;" oninput="onRateChange(this.value)"/>
+        <span class="slider-value" id="rate-display">27%</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-title">نسب السيولة اللحظية</div>
+        <div style="margin-top:10px;">
+          <div class="ratio-row"><span class="ratio-name">نسبة التداول</span><span class="ratio-value good" id="r-current">—</span></div>
+          <div class="ratio-row"><span class="ratio-name">النسبة السريعة</span><span class="ratio-value good" id="r-quick">—</span></div>
+          <div class="ratio-row"><span class="ratio-name">نسبة النقدية</span><span class="ratio-value warn" id="r-cash">—</span></div>
+          <div class="ratio-row"><span class="ratio-name">تغطية الالتزامات</span><span class="ratio-value" id="r-cover">—</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">نظام الإنذار المبكر</div>
+        <div id="alerts-container">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  CONFIGURATION
+// ══════════════════════════════════════════════════════
+let API_BASE = 'http://localhost:5000'
+let chartInstance = null
+let currentView = 'flow'
+let lastData = null
+
+// ══════════════════════════════════════════════════════
+//  CONNECTION
+// ══════════════════════════════════════════════════════
+async function connectAPI() {
+  API_BASE = document.getElementById('api-url-input').value.trim().replace(/\/$/, '')
+  document.getElementById('conn-status').textContent = 'جاري الاتصال...'
+  try {
+    const res = await fetch(API_BASE + '/health')
+    if (res.ok) {
+      document.getElementById('conn-status').textContent = 'متصل ✓'
+      loadForecast(27)
+    } else {
+      throw new Error('Server error')
+    }
+  } catch(e) {
+    document.getElementById('conn-status').textContent = 'فشل الاتصال'
+    alert('تعذّر الاتصال. تأكد أن Colab شغّال والـ URL صحيح.')
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  FETCH FORECAST FROM PYTHON API
+// ══════════════════════════════════════════════════════
+async function loadForecast(rate) {
+  document.getElementById('chart-loading').style.display = 'block'
+  try {
+    const res  = await fetch(`${API_BASE}/forecast?horizon=6&rate=${rate}`)
+    const data = await res.json()
+    lastData   = data
+    renderDashboard(data)
+  } catch(e) {
+    console.error(e)
+    document.getElementById('chart-loading').textContent = 'خطأ في تحميل البيانات'
+  } finally {
+    document.getElementById('chart-loading').style.display = 'none'
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  RENDER DASHBOARD
+// ══════════════════════════════════════════════════════
+function renderDashboard(data) {
+  const m = data.current_metrics
+
+  // Metric cards
+  document.getElementById('m-inflow').textContent   = m.inflow_latest.toFixed(1)  + 'M'
+  document.getElementById('m-outflow').textContent  = m.outflow_latest.toFixed(1) + 'M'
+  document.getElementById('m-net').textContent      = m.net_latest.toFixed(1) + 'M'
+  document.getElementById('m-mape').textContent     = data.mape + '%'
+
+  const netClass = m.net_latest >= 0 ? 'delta-up' : 'delta-down'
+  document.getElementById('m-net-d').className = 'metric-delta ' + netClass
+  document.getElementById('m-net-d').textContent = m.net_latest >= 0 ? 'هامش آمن ✓' : 'تحذير: عجز نقدي'
+
+  // Ratios
+  const setRatio = (id, val, threshGood, threshWarn) => {
+    const el = document.getElementById(id)
+    el.textContent = typeof val === 'number' ? val.toFixed(2) : val
+    el.className   = 'ratio-value ' + (val >= threshGood ? 'good' : val >= threshWarn ? 'warn' : 'bad')
+  }
+  setRatio('r-current', m.current_ratio, 2.0, 1.0)
+  setRatio('r-quick',   m.quick_ratio,   1.5, 1.0)
+  setRatio('r-cash',    m.cash_ratio,    0.8, 0.5)
+
+  const cov = (m.inflow_latest / m.outflow_latest * 100).toFixed(0) + '%'
+  const covEl = document.getElementById('r-cover')
+  covEl.textContent = cov
+  covEl.className   = 'ratio-value ' + (m.inflow_latest / m.outflow_latest > 1.2 ? 'good' : 'warn')
+
+  // Chart
+  renderChart(data, currentView)
+
+  // Alerts
+  renderAlerts(data.alerts)
+}
+
+function renderChart(data, view) {
+  const ctx = document.getElementById('flowChart').getContext('2d')
+  if (chartInstance) chartInstance.destroy()
+
+  let datasets
+  if (view === 'flow') {
+    datasets = [
+      { label: 'تدفق داخل', data: data.inflow,   borderColor: '#1A3A5C', backgroundColor: 'rgba(26,58,92,0.08)', fill: true, tension: 0.4, borderWidth: 2 },
+      { label: 'تدفق خارج', data: data.outflow,  borderColor: '#C8973A', backgroundColor: 'rgba(200,151,58,0.07)', fill: true, tension: 0.4, borderWidth: 2 }
+    ]
+  } else if (view === 'net') {
+    datasets = [{ label: 'صافي التدفق', data: data.net_flow, borderColor: '#0F6E56', backgroundColor: 'rgba(15,110,86,0.1)', fill: true, tension: 0.4, borderWidth: 2 }]
+  } else {
+    datasets = [{ label: 'نسبة التغطية %', data: data.coverage_pct, borderColor: '#534AB7', backgroundColor: 'rgba(83,74,183,0.08)', fill: true, tension: 0.4, borderWidth: 2 }]
+  }
+
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: { labels: data.dates, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { font: { size: 11 } } },
+        y: { ticks: { font: { size: 11 }, callback: v => view === 'cov' ? v + '%' : v + 'M' } }
+      }
+    }
+  })
+}
+
+function renderAlerts(alerts) {
+  const container = document.getElementById('alerts-container')
+  if (!alerts || alerts.length === 0) {
+    container.innerHTML = '<div class="alert-box safe-level"><div class="alert-title">✅ لا توجد تحذيرات</div><div class="alert-text">جميع التدفقات المتوقعة ضمن النطاق الآمن.</div></div>'
+    return
+  }
+  container.innerHTML = alerts.map(a => `
+    <div class="alert-box ${a.color === 'red' ? 'crit-level' : 'warn-level'}">
+      <div class="alert-title">${a.level === 'CRITICAL' ? '🔴' : '🟡'} ${a.month}</div>
+      <div class="alert-text">${a.message}</div>
+    </div>
+  `).join('')
+}
+
+// ══════════════════════════════════════════════════════
+//  UI CONTROLS
+// ══════════════════════════════════════════════════════
+function setView(view, btn) {
+  currentView = view
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  if (lastData) renderChart(lastData, view)
+}
+
+let rateTimer = null
+function onRateChange(val) {
+  document.getElementById('rate-display').textContent = val + '%'
+  clearTimeout(rateTimer)
+  rateTimer = setTimeout(() => {
+    if (API_BASE !== 'http://localhost:5000') loadForecast(val)
+    else if (lastData) renderChart(lastData, currentView)
+  }, 400)
+}
+
+// ══════════════════════════════════════════════════════
+//  MOCK DATA (works without Colab)
+// ══════════════════════════════════════════════════════
+function useMockData() {
+  document.getElementById('conn-status').textContent = 'بيانات تجريبية ✓'
+  const mock = {
+    dates:        ['أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر','يناير'],
+    inflow:       [11.2, 12.8, 11.5, 13.1, 12.4, 10.8],
+    outflow:      [8.4,  9.2,  8.7,  9.8,  9.1,  9.9],
+    net_flow:     [2.8,  3.6,  2.8,  3.3,  3.3,  0.9],
+    coverage_pct: [133,  139,  132,  134,  136,  109],
+    mape:         7.8,
+    alerts: [{ month: 'يناير', level: 'WARNING', message: 'التدفق الخارج 91.7% من الداخل. يحتاج مراقبة.', color: 'amber' }],
+    current_metrics: { inflow_latest: 12.4, outflow_latest: 9.1, net_latest: 3.3, current_ratio: 2.41, quick_ratio: 1.87, cash_ratio: 0.73 }
+  }
+  lastData = mock
+  renderDashboard(mock)
+}
+
+// Auto-load mock if no API configured
+window.onload = () => { if (API_BASE === 'http://localhost:5000') useMockData() }
+</script>
+</body>
+</html>
